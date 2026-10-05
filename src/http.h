@@ -17,6 +17,7 @@ typedef struct
     int status;
     int64_t content_length;
     int chunked;
+    int compressed;
     char location[MH_LOCATION_MAX];
 } mh_head;
 

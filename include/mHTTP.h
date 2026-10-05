@@ -53,6 +53,7 @@ typedef struct mhttp_request {
     int follow_redirects;
     int max_redirects;
     int insecure;
+    int accept_decompression;
     size_t max_body_size;
 
     mhttp_write_fn on_data;
@@ -95,6 +96,7 @@ const char *mhttp_strerror(mhttp_error code);
 const char *mhttp_ca_download_url(void);
 const char *mhttp_ca_system_source(void);
 int mhttp_ca_cert_count(void);
+const char *mhttp_zlib_version(void);
 
 #ifdef __cplusplus
 }

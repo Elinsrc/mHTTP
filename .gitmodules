@@ -2,3 +2,6 @@
 	path = external/mbedtls
 	url = https://github.com/Mbed-TLS/mbedtls
 	branch = mbedtls-3.6
+[submodule "external/zlib"]
+	path = external/zlib
+	url = https://github.com/madler/zlib

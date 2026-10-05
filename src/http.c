@@ -12,9 +12,13 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef MHTTP_WITH_ZLIB
+#include <zlib.h>
+#endif
+
 #define MH_LINE_MAX 8192
 #define MH_HEADERS_MAX 65536
-#define MH_DEFAULT_USER_AGENT "Mozilla/5.0 (compatible; mHTTP/" MHTTP_VERSION ")"
+#define MH_DEFAULT_USER_AGENT "mHTTP/" MHTTP_VERSION
 
 static int needs_content_length(const mh_message *m)
 {
@@ -22,6 +26,37 @@ static int needs_content_length(const mh_message *m)
         || !strcmp(m->method, "POST")
         || !strcmp(m->method, "PUT")
         || !strcmp(m->method, "PATCH");
+}
+
+static int has_header(const char *const *headers, const char *name)
+{
+    if (!headers)
+        return 0;
+
+    for (; *headers; headers++)
+        if (mh_header_value(*headers, name))
+            return 1;
+
+    return 0;
+}
+
+static int want_decompression(const mhttp_request *req, const mh_message *msg)
+{
+#ifdef MHTTP_WITH_ZLIB
+    return req->accept_decompression && !has_header(msg->headers, "Range") && !has_header(msg->headers, "Accept-Encoding");
+#else
+    (void)req;
+    (void)msg;
+    return 0;
+#endif
+}
+
+static const char *accept_encoding_line(const mhttp_request *req, const mh_message *msg)
+{
+    if (has_header(msg->headers, "Accept-Encoding"))
+        return "";
+
+    return want_decompression(req, msg) ? "Accept-Encoding: gzip, deflate\r\n" : "Accept-Encoding: identity\r\n";
 }
 
 static void refresh_stall(mh_conn *c, int stall_timeout_ms)
@@ -36,15 +71,21 @@ static mhttp_error send_request(mh_conn *c, const mhttp_request *req, const mh_m
     mhttp_error e;
     int ok = 1;
 
-    ok &= mh_sb_addf(&head,
-        "%s %s HTTP/1.1\r\n"
-        "Host: %s\r\n"
-        "User-Agent: %s\r\n"
-        "Accept: */*\r\n"
-        "Accept-Encoding: identity\r\n"
-        "Connection: close\r\n",
-        msg->method, url->path, url->hostport,
-        req->user_agent ? req->user_agent : MH_DEFAULT_USER_AGENT);
+    ok &= mh_sb_addf(&head, "%s %s HTTP/1.1\r\n", msg->method, url->path);
+
+    if (!has_header(msg->headers, "Host"))
+        ok &= mh_sb_addf(&head, "Host: %s\r\n", url->hostport);
+
+    if (!has_header(msg->headers, "User-Agent"))
+        ok &= mh_sb_addf(&head, "User-Agent: %s\r\n", req->user_agent ? req->user_agent : MH_DEFAULT_USER_AGENT);
+
+    if (!has_header(msg->headers, "Accept"))
+        ok &= mh_sb_addf(&head, "Accept: */*\r\n");
+
+    ok &= mh_sb_addf(&head, "%s", accept_encoding_line(req, msg));
+
+    if (!has_header(msg->headers, "Connection"))
+        ok &= mh_sb_addf(&head, "Connection: close\r\n");
 
     if (msg->headers)
     {
@@ -52,7 +93,7 @@ static mhttp_error send_request(mh_conn *c, const mhttp_request *req, const mh_m
             ok &= mh_sb_addf(&head, "%s\r\n", *h);
     }
 
-    if (needs_content_length(msg))
+    if (!has_header(msg->headers, "Content-Length") && needs_content_length(msg))
         ok &= mh_sb_addf(&head, "Content-Length: %lu\r\n", (unsigned long)msg->body_len);
 
     ok &= mh_sb_addf(&head, "\r\n");
@@ -126,6 +167,11 @@ static mhttp_error read_header_fields(mh_conn *c, mh_strbuf *raw, mh_head *h, in
             if (mh_ci_contains(v, "chunked"))
                 h->chunked = 1;
         }
+        else if ((v = mh_header_value(line, "Content-Encoding")))
+        {
+            if (mh_ci_contains(v, "gzip") || mh_ci_contains(v, "deflate"))
+                h->compressed = 1;
+        }
         else if ((v = mh_header_value(line, "Location")))
         {
             snprintf(h->location, sizeof h->location, "%s", v);
@@ -156,6 +202,7 @@ static mhttp_error read_head(mh_conn *c, mhttp_response *res, mh_head *h, int st
         h->status = atoi(line + 9);
         h->content_length = -1;
         h->chunked = 0;
+        h->compressed = 0;
         h->location[0] = 0;
 
         mh_sb_free(&raw);
@@ -184,6 +231,16 @@ fail:
     return e;
 }
 
+#ifdef MHTTP_WITH_ZLIB
+typedef struct
+{
+    z_stream zs;
+    int zdone;
+    int started;
+    int raw_tried;
+} mh_zdecoder;
+#endif
+
 typedef struct
 {
     const mhttp_request *req;
@@ -191,6 +248,9 @@ typedef struct
     int64_t received;
     int64_t total;
     size_t cap;
+#ifdef MHTTP_WITH_ZLIB
+    mh_zdecoder *z;
+#endif
 } mh_sink;
 
 static mhttp_error sink_append(mh_sink *k, const uint8_t *data, size_t n)
@@ -231,6 +291,95 @@ static mhttp_error sink_append(mh_sink *k, const uint8_t *data, size_t n)
     return MHTTP_OK;
 }
 
+static mhttp_error sink_emit(mh_sink *k, const uint8_t *data, size_t n)
+{
+    if (!n)
+        return MHTTP_OK;
+
+    if (k->req->on_data)
+    {
+        if (k->req->on_data(data, n, k->req->on_data_user) != n)
+            return mh_fail(k->res, MHTTP_ERR_WRITE_CB, "write callback aborted transfer");
+        return MHTTP_OK;
+    }
+
+    return sink_append(k, data, n);
+}
+
+#ifdef MHTTP_WITH_ZLIB
+static int zdecoder_init(mh_zdecoder *z, int windowBits)
+{
+    memset(&z->zs, 0, sizeof z->zs);
+    return inflateInit2(&z->zs, windowBits) == Z_OK;
+}
+
+static int zdecoder_fallback_raw(mh_zdecoder *z)
+{
+    inflateEnd(&z->zs);
+    return zdecoder_init(z, -15);
+}
+
+static mhttp_error sink_inflate(mh_sink *k, const uint8_t *data, size_t n)
+{
+    uint8_t out[16384];
+    mh_zdecoder *z = k->z;
+    z_stream *zs = &z->zs;
+
+    if (z->zdone)
+        return MHTTP_OK;
+
+    zs->next_in = (Bytef *)data;
+    zs->avail_in = (uInt)n;
+
+    while (zs->avail_in > 0)
+    {
+        mhttp_error e;
+        int r;
+
+        zs->next_out = out;
+        zs->avail_out = sizeof out;
+
+        r = inflate(zs, Z_NO_FLUSH);
+
+        if (r == Z_DATA_ERROR && !z->started && !z->raw_tried)
+        {
+            z->raw_tried = 1;
+            if (!zdecoder_fallback_raw(z))
+                return mh_fail(k->res, MHTTP_ERR_NOMEM, "cannot init decompressor");
+
+            zs = &z->zs;
+            zs->next_in = (Bytef *)data;
+            zs->avail_in = (uInt)n;
+            continue;
+        }
+
+        if (r != Z_OK && r != Z_STREAM_END && r != Z_BUF_ERROR)
+            return mh_fail(k->res, MHTTP_ERR_PROTOCOL, "corrupt compressed data (zlib %d)", r);
+
+        z->started = 1;
+
+        e = sink_emit(k, out, sizeof out - zs->avail_out);
+        if (e)
+            return e;
+
+        if (r == Z_STREAM_END)
+        {
+            z->zdone = 1;
+            break;
+        }
+
+        if (r == Z_BUF_ERROR)
+        {
+            if (zs->avail_in == 0)
+                break;
+
+            return mh_fail(k->res, MHTTP_ERR_PROTOCOL, "decompressor stalled with pending input");
+        }
+    }
+    return MHTTP_OK;
+}
+#endif
+
 static mhttp_error sink_put(mh_sink *k, const uint8_t *data, size_t n)
 {
     const mhttp_request *req = k->req;
@@ -242,17 +391,15 @@ static mhttp_error sink_put(mh_sink *k, const uint8_t *data, size_t n)
     if (mh_is_cancelled(req))
         return mh_fail_wait(k->res, MHTTP_ERR_CANCELLED);
 
-    if (req->on_data)
-    {
-        if (req->on_data(data, n, req->on_data_user) != n)
-            return mh_fail(k->res, MHTTP_ERR_WRITE_CB, "write callback aborted transfer");
-    }
+#ifdef MHTTP_WITH_ZLIB
+    if (k->z)
+        e = sink_inflate(k, data, n);
     else
-    {
-        e = sink_append(k, data, n);
-        if (e)
-            return e;
-    }
+#endif
+        e = sink_emit(k, data, n);
+
+    if (e)
+        return e;
 
     k->received += (int64_t)n;
 
@@ -362,22 +509,50 @@ static mhttp_error read_body_until_close(mh_conn *c, mh_sink *k, int stall_timeo
     }
 }
 
-static mhttp_error read_body(mh_conn *c, const mhttp_request *req, mhttp_response *res, const mh_head *h, int stall_timeout_ms)
+static mhttp_error read_body(mh_conn *c, const mhttp_request *req, mhttp_response *res, const mh_head *h, int stall_timeout_ms, int decode)
 {
-    mh_sink sink = { req, res, 0, 0, 0 };
+    mh_sink sink = {0};
+    mhttp_error e;
+
+    sink.req = req;
+    sink.res = res;
 
     if (!h->chunked && h->content_length > 0)
         sink.total = h->content_length;
 
-    if (h->chunked)
-        return read_body_chunked(c, &sink, stall_timeout_ms);
-
-    if (h->content_length >= 0)
+#ifdef MHTTP_WITH_ZLIB
+    if (decode)
     {
-        return pump(c, &sink, (uint64_t)h->content_length, stall_timeout_ms, MHTTP_ERR_RECV, "connection closed before full body received");
+        sink.z = calloc(1, sizeof *sink.z);
+        if (!sink.z || !zdecoder_init(sink.z, 15 + 32))
+        {
+            free(sink.z);
+            return mh_fail(res, MHTTP_ERR_NOMEM, "cannot init decompressor");
+        }
     }
+#else
+    (void)decode;
+#endif
 
-    return read_body_until_close(c, &sink, stall_timeout_ms);
+    if (h->chunked)
+        e = read_body_chunked(c, &sink, stall_timeout_ms);
+    else if (h->content_length >= 0)
+        e = pump(c, &sink, (uint64_t)h->content_length, stall_timeout_ms, MHTTP_ERR_RECV, "connection closed before full body received");
+    else
+        e = read_body_until_close(c, &sink, stall_timeout_ms);
+
+#ifdef MHTTP_WITH_ZLIB
+    if (sink.z)
+    {
+        if (!e && !sink.z->zdone && sink.received > 0)
+            e = mh_fail(res, MHTTP_ERR_PROTOCOL, "compressed stream truncated");
+
+        inflateEnd(&sink.z->zs);
+        free(sink.z);
+    }
+#endif
+
+    return e;
 }
 
 static int response_has_body(const char *method, int status)
@@ -430,7 +605,7 @@ mhttp_error mh_http_exchange(const mhttp_request *req, const mh_message *msg, co
     }
 
     if (response_has_body(msg->method, head.status))
-        e = read_body(c, req, res, &head, stall_timeout_ms);
+        e = read_body(c, req, res, &head, stall_timeout_ms, want_decompression(req, msg) && head.compressed);
 
 done:
     mh_conn_free(c);

@@ -1,17 +1,23 @@
+# SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Elinsrc
+
 cmake_minimum_required(VERSION 3.16)
 project(mHTTP C)
 
 set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_STANDARD_REQUIRED ON)
 
+option(MHTTP_WITH_ZLIB "Enable gzip/deflate response decompression" ON)
 option(MHTTP_BUILD_CLI "Build the mHTTP command line tool" ON)
 
+message(STATUS "mHTTP: zlib decompression: ${MHTTP_WITH_ZLIB}")
 message(STATUS "mHTTP: build CLI: ${MHTTP_BUILD_CLI}")
 
 set(ENABLE_TESTING OFF CACHE BOOL "" FORCE)
 set(ENABLE_PROGRAMS OFF CACHE BOOL "" FORCE)
 set(MBEDTLS_FATAL_WARNINGS OFF CACHE BOOL "" FORCE)
-set(GEN_FILES ON CACHE BOOL "" FORCE) 
-set(BUILD_SHARED_LIBS OFF CACHE INTERNAL "" FORCE)
+set(GEN_FILES ON CACHE BOOL "" FORCE)
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 
 add_subdirectory(external/mbedtls)
 
@@ -23,22 +29,39 @@ add_library(mhttp
     src/tls.c
     src/ca.c
     src/http.c
-    src/mhttp.c)
+    src/mhttp.c
+)
 
 target_include_directories(mhttp PUBLIC include PRIVATE src)
-target_link_libraries(mhttp PUBLIC mbedtls mbedx509 mbedcrypto)
+
+target_link_libraries(mhttp PRIVATE mbedtls mbedx509 mbedcrypto)
+
 if(WIN32)
-    target_link_libraries(mhttp PUBLIC ws2_32 crypt32)
+    target_link_libraries(mhttp PRIVATE ws2_32 crypt32)
+endif()
+
+if(MHTTP_WITH_ZLIB)
+    add_subdirectory(external/zlib)
+
+    if(TARGET zlibstatic)
+        target_link_libraries(mhttp PRIVATE zlibstatic)
+    elseif(TARGET zlib)
+        target_link_libraries(mhttp PRIVATE zlib)
+    endif()
+
+    target_compile_definitions(mhttp PRIVATE MHTTP_WITH_ZLIB)
 endif()
 
 if(MHTTP_BUILD_CLI)
     add_executable(mhttp-cli 
-    cli/main.c
-    cli/cli.c
-    cli/fmt.c
-    cli/outname.c
-    cli/sighandler.c
-    cli/term.c
-    cli/transfer.c)
+        cli/main.c
+        cli/cli.c
+        cli/fmt.c
+        cli/outname.c
+        cli/sighandler.c
+        cli/term.c
+        cli/transfer.c
+    )
+    
     target_link_libraries(mhttp-cli PRIVATE mhttp)
 endif()

@@ -14,6 +14,10 @@
 
 #include <psa/crypto.h>
 
+#ifdef MHTTP_WITH_ZLIB
+#include <zlib.h>
+#endif
+
 #define DEFAULT_TIMEOUT_MS 10000
 #define DEFAULT_MAX_REDIRECTS 5
 #define DEFAULT_MAX_BODY (64u * 1024u * 1024u)
@@ -333,4 +337,15 @@ const char *mhttp_strerror(mhttp_error code)
         default:                           
             return "unknown error";
     }
+}
+
+const char *mhttp_zlib_version(void)
+{
+#ifdef MHTTP_WITH_ZLIB
+    static char buf[64];
+    snprintf(buf, sizeof buf, "zlib/%s", zlibVersion());
+    return buf;
+#else
+    return "zlib/none";
+#endif
 }

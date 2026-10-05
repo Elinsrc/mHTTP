@@ -13,7 +13,7 @@
 void print_usage(void)
 {
     fprintf(stderr,
-        "mHTTP v%s (%s)\n"
+        "mHTTP v%s (%s / %s)\n"
         "Usage: mhttp [options] URL\n"
         "\n"
         "Options:\n"
@@ -37,7 +37,7 @@ void print_usage(void)
         "saved automatically (like -O); Use --stdout to print to the terminal\n"
         "\n"
         "Press Ctrl+C to interrupt a download gracefully (partial file is kept)\n",
-        MHTTP_VERSION, mhttp_tls_version(), MAX_HEADERS);
+        MHTTP_VERSION, mhttp_tls_version(), mhttp_zlib_version(), MAX_HEADERS);
 }
 
 int parse_args(int argc, char **argv, cli_options *opts)
