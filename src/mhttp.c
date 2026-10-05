@@ -287,3 +287,50 @@ int mhttp_response_header(const mhttp_response *res, const char *name, char *out
     }
     return 0;
 }
+
+const char *mhttp_strerror(mhttp_error code)
+{
+    switch (code)
+    {
+        case MHTTP_OK:                     
+            return "no error";
+        case MHTTP_ERR_PARAM:              
+            return "invalid parameter";
+        case MHTTP_ERR_URL:                
+            return "malformed URL";
+        case MHTTP_ERR_NOMEM:              
+            return "out of memory";
+        case MHTTP_ERR_DNS:                
+            return "DNS resolution failed";
+        case MHTTP_ERR_CONNECT:            
+            return "connection failed";
+        case MHTTP_ERR_TLS:                
+            return "TLS handshake failed";
+        case MHTTP_ERR_NO_CA:              
+            return "no valid CA certificates";
+        case MHTTP_ERR_SEND:               
+            return "failed to send request";
+        case MHTTP_ERR_RECV:               
+            return "failed to receive response";
+        case MHTTP_ERR_TIMEOUT:            
+            return "operation timed out";
+        case MHTTP_ERR_CANCELLED:          
+            return "operation cancelled";
+        case MHTTP_ERR_PROTOCOL:           
+            return "protocol error";
+        case MHTTP_ERR_TOO_BIG:            
+            return "response too large";
+        case MHTTP_ERR_TOO_MANY_REDIRECTS: 
+            return "too many redirects";
+        case MHTTP_ERR_WRITE_CB:           
+            return "write callback failed";
+        case MHTTP_ERR_HTTP:               
+            return "HTTP error status";
+        case MHTTP_ERR_INIT:               
+            return "subsystem not initialized";
+        case MHTTP_ERR_IO:                 
+            return "file I/O error";
+        default:                           
+            return "unknown error";
+    }
+}

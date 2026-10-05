@@ -21,12 +21,14 @@
 static mbedtls_x509_crt g_ca;
 static int g_ca_inited = 0;
 static int g_ca_ready = 0;
+static char g_ca_system_source[256] = "";
 
 int mh_ca_init(void)
 {
     mbedtls_x509_crt_init(&g_ca);
     g_ca_ready = 0;
     g_ca_inited = 1;
+    g_ca_system_source[0] = 0;
     return 0;
 }
 
@@ -35,6 +37,7 @@ void mh_ca_free(void)
     mbedtls_x509_crt_free(&g_ca);
     g_ca_ready = 0;
     g_ca_inited = 0;
+    g_ca_system_source[0] = 0;
 }
 
 mbedtls_x509_crt *mh_ca_chain(void)
@@ -45,6 +48,11 @@ mbedtls_x509_crt *mh_ca_chain(void)
 int mhttp_ca_ready(void)
 {
     return g_ca_ready;
+}
+
+const char *mhttp_ca_system_source(void)
+{
+    return g_ca_system_source;
 }
 
 static int has_certs(void)
@@ -73,6 +81,8 @@ mhttp_error mhttp_set_ca_pem(const void *pem, size_t len)
     free(tmp);
 
     g_ca_ready = (ret >= 0 && has_certs());
+    g_ca_system_source[0] = 0;
+
     return g_ca_ready ? MHTTP_OK : MHTTP_ERR_NO_CA;
 }
 
@@ -126,6 +136,7 @@ mhttp_error mhttp_set_ca_file(const char *path)
 
     e = mhttp_set_ca_pem(buf, size);
     free(buf);
+
     return e;
 }
 
@@ -151,6 +162,10 @@ static mhttp_error load_system(void)
     CertCloseStore(store, 0);
 
     g_ca_ready = count > 0;
+
+    if (g_ca_ready)
+        snprintf(g_ca_system_source, sizeof g_ca_system_source, "Windows ROOT certificate store (%d certs)", count);
+
     return count > 0 ? MHTTP_OK : MHTTP_ERR_NO_CA;
 }
 
@@ -170,6 +185,7 @@ static mhttp_error load_system(void)
         if (mbedtls_x509_crt_parse_path(&g_ca, dirs[i]) >= 0 && has_certs())
         {
             g_ca_ready = 1;
+            snprintf(g_ca_system_source, sizeof g_ca_system_source, "%s", dirs[i]);
             return MHTTP_OK;
         }
     }
@@ -192,7 +208,10 @@ static mhttp_error load_system(void)
     for (int i = 0; files[i]; i++)
     {
         if (mhttp_set_ca_file(files[i]) == MHTTP_OK)
+        {
+            snprintf(g_ca_system_source, sizeof g_ca_system_source, "%s", files[i]);
             return MHTTP_OK;
+        }
     }
     return MHTTP_ERR_NO_CA;
 }
@@ -201,10 +220,18 @@ static mhttp_error load_system(void)
 
 mhttp_error mhttp_load_system_ca(void)
 {
+    mhttp_error e;
+
     if (!g_ca_inited)
         return MHTTP_ERR_INIT;
 
-    return load_system();
+    g_ca_system_source[0] = 0;
+    e = load_system();
+
+    if (e != MHTTP_OK)
+        g_ca_system_source[0] = 0;
+
+    return e;
 }
 
 static void mkdirs_for_file(const char *path)
@@ -288,9 +315,37 @@ mhttp_error mhttp_ca_update(const char *path, int max_age_sec)
     struct stat st;
     int have  = (stat(path, &st) == 0 && st.st_size > 0);
     int fresh = have && difftime(time(NULL), st.st_mtime) < (double)max_age_sec;
+    mhttp_error e;
 
     if (!fresh && download_bundle(path))
         have = 1;
 
-    return have ? mhttp_set_ca_file(path) : MHTTP_ERR_NO_CA;
+    if (!have)
+        return MHTTP_ERR_NO_CA;
+
+    e = mhttp_set_ca_file(path);
+
+    if (e == MHTTP_OK)
+        g_ca_system_source[0] = 0;
+
+    return e;
+}
+
+const char *mhttp_ca_download_url(void)
+{
+    return CA_URL;
+}
+
+int mhttp_ca_cert_count(void)
+{
+    int n = 0;
+    const mbedtls_x509_crt *c = &g_ca;
+
+    if (!g_ca_ready)
+        return 0;
+
+    for (; c != NULL; c = c->next)
+        n++;
+
+    return n;
 }

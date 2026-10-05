@@ -91,6 +91,10 @@ void mhttp_response_free(mhttp_response *res);
 int mhttp_response_header(const mhttp_response *res, const char *name, char *out, size_t outsz);
 
 const char *mhttp_tls_version(void);
+const char *mhttp_strerror(mhttp_error code);
+const char *mhttp_ca_download_url(void);
+const char *mhttp_ca_system_source(void);
+int mhttp_ca_cert_count(void);
 
 #ifdef __cplusplus
 }
