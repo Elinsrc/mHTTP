@@ -8,7 +8,8 @@
 
 #define MAX_HEADERS 32
 
-typedef struct {
+typedef struct 
+{
     const char *url;
     const char *out_file;
     const char *data;

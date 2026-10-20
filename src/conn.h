@@ -11,7 +11,8 @@
 #include <mbedtls/build_info.h>
 #include <mbedtls/ssl.h>
 
-typedef struct {
+typedef struct 
+{
     mh_sock sock;
     int tls_on;
     int tls_init;

@@ -13,7 +13,10 @@
 void print_usage(void)
 {
     fprintf(stderr,
-        "mHTTP v%s (%s / %s)\n"
+        "\n"
+        "%s\n"
+        "%s / %s\n"
+        "\n"
         "Usage: mhttp [options] URL\n"
         "\n"
         "Options:\n"

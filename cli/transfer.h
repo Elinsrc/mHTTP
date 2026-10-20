@@ -9,7 +9,8 @@
 #include <stdint.h>
 #include <stdio.h>
 
-typedef struct {
+typedef struct 
+{
     FILE *f;
     const char *out_path;
     char *auto_out_path;

@@ -6,7 +6,8 @@
 
 #include "mHTTP.h"
 
-typedef struct {
+typedef struct 
+{
     int https;
     int port;
     char host[256];

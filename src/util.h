@@ -19,7 +19,8 @@ mhttp_error mh_fail_wait(mhttp_response *res, mhttp_error code);
 
 int mh_is_cancelled(const mhttp_request *req);
 
-typedef struct {
+typedef struct 
+{
     char  *p;
     size_t len;
     size_t cap;

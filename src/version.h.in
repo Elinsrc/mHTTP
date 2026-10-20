@@ -1,0 +1,5 @@
+#pragma once
+
+#define GIT_BRANCH "@GIT_BRANCH@"
+#define GIT_COMMIT "@GIT_COMMIT@"
+#define GIT_COMMIT_COUNT "@GIT_COMMIT_COUNT@"

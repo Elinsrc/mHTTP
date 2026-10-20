@@ -4,8 +4,18 @@
 cmake_minimum_required(VERSION 3.16)
 project(mHTTP C)
 
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/version.cmake")
+
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
+
+set(MHTTP_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
+
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/version.h.in"
+    "${MHTTP_GENERATED_DIR}/version.h"
+    @ONLY
+)
 
 option(MHTTP_WITH_ZLIB "Enable gzip/deflate response decompression" ON)
 option(MHTTP_BUILD_CLI "Build the mHTTP command line tool" ON)
@@ -32,7 +42,13 @@ add_library(mhttp
     src/mhttp.c
 )
 
-target_include_directories(mhttp PUBLIC include PRIVATE src)
+target_include_directories(mhttp
+    PUBLIC
+        "${CMAKE_CURRENT_SOURCE_DIR}/include"
+        "${MHTTP_GENERATED_DIR}"
+    PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+)
 
 target_link_libraries(mhttp PRIVATE mbedtls mbedx509 mbedcrypto)
 
@@ -53,7 +69,7 @@ if(MHTTP_WITH_ZLIB)
 endif()
 
 if(MHTTP_BUILD_CLI)
-    add_executable(mhttp-cli 
+    add_executable(mhttp-cli
         cli/main.c
         cli/cli.c
         cli/fmt.c
@@ -62,6 +78,6 @@ if(MHTTP_BUILD_CLI)
         cli/term.c
         cli/transfer.c
     )
-    
+
     target_link_libraries(mhttp-cli PRIVATE mhttp)
 endif()

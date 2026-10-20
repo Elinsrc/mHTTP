@@ -21,7 +21,8 @@ typedef struct
     char location[MH_LOCATION_MAX];
 } mh_head;
 
-typedef struct mh_message {
+typedef struct mh_message 
+{
     const char *method;
     const char *const *headers;
     const void *body;

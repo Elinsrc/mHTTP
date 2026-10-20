@@ -4,6 +4,8 @@
 #ifndef MHTTP_H
 #define MHTTP_H
 
+#include "version.h"
+
 #include <stddef.h>
 #include <stdint.h>
 
@@ -11,9 +13,10 @@
 extern "C" {
 #endif
 
-#define MHTTP_VERSION "0.0.1"
+#define MHTTP_VERSION "mHTTP r" GIT_COMMIT_COUNT "-" GIT_COMMIT " (" GIT_BRANCH ")"
 
-typedef enum mhttp_error {
+typedef enum mhttp_error 
+{
     MHTTP_OK = 0,
     MHTTP_ERR_PARAM,
     MHTTP_ERR_URL,
@@ -39,7 +42,8 @@ typedef size_t (*mhttp_write_fn)(const void *data, size_t len, void *user);
 typedef int (*mhttp_progress_fn)(int64_t now, int64_t total, void *user);
 typedef int (*mhttp_cancel_fn)(void *user);
 
-typedef struct mhttp_request {
+typedef struct mhttp_request 
+{
     const char *url;
     const char *method;
     const char *const *headers;
@@ -64,7 +68,8 @@ typedef struct mhttp_request {
     void *is_cancelled_user;
 } mhttp_request;
 
-typedef struct mhttp_response {
+typedef struct mhttp_response 
+{
     int ok;
     int status;
     mhttp_error code;
@@ -80,7 +85,7 @@ void mhttp_global_cleanup(void);
 mhttp_error mhttp_set_ca_file(const char *path);
 mhttp_error mhttp_set_ca_pem(const void *pem, size_t len);
 mhttp_error mhttp_load_system_ca(void);
-mhttp_error mhttp_ca_update(const char *path, int max_age_sec);\
+mhttp_error mhttp_ca_update(const char *path, int max_age_sec);
 int mhttp_ca_ready(void);
 
 void mhttp_request_init(mhttp_request *req, const char *url);
